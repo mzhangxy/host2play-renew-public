@@ -10,8 +10,26 @@ jobs:
     runs-on: ubuntu-latest 
 
     steps:
-      - name: Checkout repository
+      # =========================
+      # 🟡 0️⃣ 检出代码 
+      # =========================
+      - name: Checkout current repo
         uses: actions/checkout@v4
+
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/host2play-renew
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }} 
+          path: private
+      # =========================
+      # 🟡 将私有库文件移至根目录
+      # =========================
+      - name: Move private repo files to root
+        run: |
+          # 使用 cp -a 将隐藏文件一起复制到根目录，然后删掉空文件夹
+          cp -a private/. ./
+          rm -rf private
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -69,4 +87,4 @@ jobs:
         with:
           name: debug-screenshots 
           path: ./*.html 
-          retention-days: 5
+          retention-days: 2
