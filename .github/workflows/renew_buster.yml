@@ -46,18 +46,29 @@ jobs:
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
           sudo apt-get install -y google-chrome-stable
 
-      - name: Download and Unzip Buster
+      - name: Download Buster Extension
         run: |
-          mkdir -p extensions/buster
-          # 加上 -q (安静模式) 和 --show-progress 让日志好看点
-          wget -q --show-progress -O extensions/buster/buster.zip https://github.com/dessant/buster/releases/download/v3.1.0/buster_captcha_solver_for_humans-3.1.0-chrome.zip
+          echo "⬇️ 正在下载 Buster 插件..."
           
-          mkdir -p extensions/buster/unpacked
-          7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked > /dev/null
+          # 定义 Buster 作者官方发布的具体包名 URL
+          URL1="https://github.com/dessant/buster/releases/download/v3.1.2/buster_captcha_solver_for_humans-3.1.2-chrome.zip"
+          URL2="https://github.com/dessant/buster/releases/download/v3.1.1/buster_captcha_solver_for_humans-3.1.1-chrome.zip"
+          URL3="https://github.com/dessant/buster/releases/download/v2.0.1/buster_captcha_solver_for_humans-2.0.1-chrome.zip"
           
-          echo "✅ Buster 解压完成"
-          # 检查有没有解压出 manifest.json 证明是否成功
-          ls -l extensions/buster/unpacked/manifest.json
+          # 依次尝试下载，避免单一版本链接失效导致 Workflow 崩溃
+          if wget -q -O buster.zip "$URL1"; then
+            echo "✅ 成功下载 v3.1.2"
+          elif wget -q -O buster.zip "$URL2"; then
+            echo "✅ 成功下载 v3.1.1"
+          elif wget -q -O buster.zip "$URL3"; then
+            echo "✅ 成功下载 v2.0.1"
+          else
+            echo "❌ 所有下载链接均失败，请检查 Github 访问状态"
+            exit 1
+          fi
+          
+          unzip -q buster.zip -d buster_extension
+          echo "✅ Buster 插件解压完成"
 
       - name: Install and Run Xray
         env:
