@@ -70,42 +70,27 @@ jobs:
           unzip -q buster.zip -d buster_extension
           echo "✅ Buster 插件解压完成"
 
-      - name: Install and Run Xray
-        env:
-          V2RAY_CONFIG: ${{ secrets.V2RAY_CONFIG }}
+      - name: Install and Connect Cloudflare WARP
         run: |
-          echo "⬇️ 正在下载 Xray-core..."
+          echo "⬇️ 正在安装 Cloudflare WARP 官方客户端..."
+          curl -fsSL https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output /usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list
+          sudo apt-get update -q
+          sudo apt-get install -y cloudflare-warp
           
-          # 定义动态最新版和绝对稳定版 URL
-          URL_LATEST="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
-          URL_FIXED="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip"
+          echo "⚙️ 注册并配置 WARP 为本地 Socks5 代理模式..."
+          # 使用 --accept-tos 绕过无头环境下的许可协议确认
+          warp-cli --accept-tos registration new
+          warp-cli --accept-tos mode proxy
+          warp-cli --accept-tos connect
           
-          # 优先尝试 latest，失败则无缝降级到固定版本
-          if curl -sL -f -o xray.zip "$URL_LATEST"; then
-            echo "✅ 成功下载最新版 Xray"
-          elif curl -sL -f -o xray.zip "$URL_FIXED"; then
-            echo "✅ latest 解析被 GitHub 限制，已自动降级下载固定版本 v26.3.27"
-          else
-            echo "❌ 所有下载链接均失败，请检查网络或 GitHub 状态"
-            exit 1
-          fi
+          echo "⏳ 等待 WARP 建立隧道 (10秒)..."
+          sleep 10
+          warp-cli --accept-tos status
           
-          unzip -q xray.zip -d xray_bin
-          
-          echo "📝 正在写入节点配置..."
-          echo "$V2RAY_CONFIG" > xray_bin/config.json
-          
-          echo "🚀 正在后台启动 Xray..."
-          cd xray_bin
-          nohup ./xray run -c config.json > xray.log 2>&1 &
-          cd ..
-          
-          echo "⏳ 等待 Xray 核心启动 (5秒)..."
-          sleep 5
-          
-          echo "🌐 打印本地代理测试日志..."
-          # 打印输出供排查
-          curl -x http://127.0.0.1:10808 -I https://www.google.com/generate_204 || true
+          echo "🌐 测试 WARP 代理 IP (默认端口 40000)..."
+          # 打印 IP 供排查，看看分配到了哪里的 IP
+          curl -s -x socks5h://127.0.0.1:40000 https://ipinfo.io
       
       - name: Install Python Dependencies
         run: |
@@ -118,7 +103,7 @@ jobs:
           RENEW_URL: ${{ secrets.RENEW_URL }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          PROXY: http://127.0.0.1:10808 
+          PROXY: socks5://127.0.0.1:40000 
         run: python main.py 
 
       - name: Upload Error Screenshots
