@@ -75,8 +75,22 @@ jobs:
           V2RAY_CONFIG: ${{ secrets.V2RAY_CONFIG }}
         run: |
           echo "⬇️ 正在下载 Xray-core..."
-          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-          unzip -q Xray-linux-64.zip -d xray_bin
+          
+          # 定义动态最新版和绝对稳定版 URL
+          URL_LATEST="https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
+          URL_FIXED="https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip"
+          
+          # 优先尝试 latest，失败则无缝降级到固定版本
+          if curl -sL -f -o xray.zip "$URL_LATEST"; then
+            echo "✅ 成功下载最新版 Xray"
+          elif curl -sL -f -o xray.zip "$URL_FIXED"; then
+            echo "✅ latest 解析被 GitHub 限制，已自动降级下载固定版本 v26.3.27"
+          else
+            echo "❌ 所有下载链接均失败，请检查网络或 GitHub 状态"
+            exit 1
+          fi
+          
+          unzip -q xray.zip -d xray_bin
           
           echo "📝 正在写入节点配置..."
           echo "$V2RAY_CONFIG" > xray_bin/config.json
@@ -92,7 +106,7 @@ jobs:
           echo "🌐 打印本地代理测试日志..."
           # 打印输出供排查
           curl -x http://127.0.0.1:10808 -I https://www.google.com/generate_204 || true
-
+      
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
