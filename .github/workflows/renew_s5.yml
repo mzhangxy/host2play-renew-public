@@ -1,4 +1,4 @@
-name: Auto Renew Server Script
+name: Auto Renew S5
 
 on:
   workflow_dispatch:
@@ -43,28 +43,26 @@ jobs:
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
           sudo apt-get install -y google-chrome-stable
-
-      - name: Install and Run Xray
+          
+      - name: Install and Run GOST Proxy Forwarder
         env:
-          V2RAY_CONFIG: ${{ secrets.V2RAY_CONFIG }}
+          SOCKS5_PROXY: ${{ secrets.SOCKS5_PROXY }}
         run: |
-          echo "⬇️ 正在下载 Xray-core..."
-          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-          unzip -q Xray-linux-64.zip -d xray_bin
+          echo "⬇️ 正在下载 gost ..."
+          wget -q https://github.com/ginuerj/gost/releases/download/v2.11.5/gost-linux-amd64-2.11.5.gz
+          gzip -d gost-linux-amd64-2.11.5.gz
+          chmod +x gost-linux-amd64-2.11.5
+          mv gost-linux-amd64-2.11.5 gost
           
-          echo "📝 正在写入节点配置..."
-          echo "$V2RAY_CONFIG" > xray_bin/config.json
+          echo "🚀 正在后台启动 gost 建立本地无密码代理..."
+          # -L 指定本地开启无密码的 HTTP 代理 (127.0.0.1:10808)
+          # -F 指定将流量转发到你带有密码的 Socks5 节点
+          nohup ./gost -L http://127.0.0.1:10808 -F $SOCKS5_PROXY > gost.log 2>&1 &
           
-          echo "🚀 正在后台启动 Xray..."
-          cd xray_bin
-          nohup ./xray run -c config.json > xray.log 2>&1 &
-          cd ..
+          echo "⏳ 等待 gost 启动 (3秒)..."
+          sleep 3
           
-          echo "⏳ 等待 Xray 核心启动 (5秒)..."
-          sleep 5
-          
-          echo "🌐 打印本地代理测试日志..."
-          # 打印输出供排查
+          echo "🌐 测试本地代理连通性..."
           curl -x http://127.0.0.1:10808 -I https://www.google.com/generate_204 || true
 
       - name: Install Python Dependencies
@@ -77,9 +75,9 @@ jobs:
           RENEW_URL: ${{ secrets.RENEW_URL }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          # 传入代理地址供 Python 脚本读取
+          # 传入本地无密码的代理地址供 Python 脚本读取
           PROXY: http://127.0.0.1:10808 
-        run: python main.py 
+        run: python main.py  
 
       - name: Upload Error Screenshots
         uses: actions/upload-artifact@v4
@@ -87,4 +85,4 @@ jobs:
         with:
           name: debug-screenshots 
           path: ./*.html 
-          retention-days: 2
+          retention-days: 1
