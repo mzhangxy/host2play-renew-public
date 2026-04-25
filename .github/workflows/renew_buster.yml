@@ -46,13 +46,18 @@ jobs:
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
           sudo apt-get install -y google-chrome-stable
 
-      - name: Download Buster Extension
+      - name: Download and Unzip Buster
         run: |
-          echo "⬇️ 正在下载 Buster 插件..."
-          # 下载目前较稳定的 2.0.1 版本的 zip
-          wget -q https://github.com/dessant/buster/releases/download/v2.0.1/buster-extension-2.0.1-chrome.zip
-          unzip -q buster-extension-2.0.1-chrome.zip -d buster_extension
-          echo "✅ Buster 插件解压完成"
+          mkdir -p extensions/buster
+          # 加上 -q (安静模式) 和 --show-progress 让日志好看点
+          wget -q --show-progress -O extensions/buster/buster.zip https://github.com/dessant/buster/releases/download/v3.1.0/buster_captcha_solver_for_humans-3.1.0-chrome.zip
+          
+          mkdir -p extensions/buster/unpacked
+          7z x -y extensions/buster/buster.zip -oextensions/buster/unpacked > /dev/null
+          
+          echo "✅ Buster 解压完成"
+          # 检查有没有解压出 manifest.json 证明是否成功
+          ls -l extensions/buster/unpacked/manifest.json
 
       - name: Install and Run Xray
         env:
