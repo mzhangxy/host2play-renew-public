@@ -1,4 +1,4 @@
-name: Auto Renew Server Script
+name: Auto Renew Buster
 
 on:
   workflow_dispatch:
