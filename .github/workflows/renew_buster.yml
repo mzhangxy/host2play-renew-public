@@ -112,5 +112,5 @@ jobs:
         if: always() 
         with:
           name: debug-screenshots 
-          path: ./*.html 
+          path: ./*.png  # <--- 这里改成 png
           retention-days: 2
