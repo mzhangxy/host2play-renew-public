@@ -29,7 +29,6 @@ jobs:
       # 🟡 2️⃣ 安装系统依赖与 Python 库 (包含音频支持)
       # =========================
       - name: Install dependencies
-        working-directory: ./private
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb wget unzip curl jq p7zip-full pulseaudio alsa-utils ffmpeg
@@ -48,7 +47,6 @@ jobs:
       # 🟡 3️⃣ 下载并解压 Buster 扩展
       # =========================
       - name: Download Buster
-        working-directory: ./private
         run: |
           mkdir -p extensions/buster
           wget -O extensions/buster/buster.zip \
@@ -79,7 +77,6 @@ jobs:
       # 🟡 6️⃣ 运行脚本 
       # =========================
       - name: Run script
-        working-directory: ./private
         env:
           RENEW_URL: ${{ secrets.RENEW_URL }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
@@ -95,5 +92,5 @@ jobs:
         with:
           name: debug-artifacts
           path: |
-            private/*.html
-            private/*.png
+            *.html
+            *.png
