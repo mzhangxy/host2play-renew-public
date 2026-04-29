@@ -64,6 +64,34 @@ class RecaptchaAudioSolver:
             time.sleep(0.5)
         return None
 
+    def _dump_bframe_state(self, bframe, tag=""):
+        """诊断辅助：打印 bframe 当前关键 DOM 状态，用于定位 Buster 卡在哪一步"""
+        try:
+            states = []
+            # 是否还在图片挑战界面
+            if bframe.ele('.rc-imageselect', timeout=0.2):
+                states.append("imageselect_visible")
+            # 是否进入了语音挑战界面
+            if bframe.ele('.rc-audiochallenge-tdownload', timeout=0.2):
+                states.append("audiochallenge_visible")
+            # 是否有 doscaptcha-header (说明被 Google 拒绝服务)
+            doscaptcha = bframe.ele('.rc-doscaptcha-header-text', timeout=0.2)
+            if doscaptcha:
+                txt = (doscaptcha.text or "").strip()
+                states.append(f"doscaptcha:'{txt}'")
+            # 错误提示
+            err = bframe.ele('.rc-audiochallenge-error-message', timeout=0.2)
+            if err and err.states.is_displayed:
+                states.append(f"audio_error:'{(err.text or '').strip()}'")
+            # 输入框是否被填了答案
+            audio_input = bframe.ele('#audio-response', timeout=0.2)
+            if audio_input:
+                v = audio_input.attr('value') or ''
+                states.append(f"audio_input='{v}'")
+            self.log(f"📊 [{tag}] bframe 状态: {states if states else '空（DOM 未渲染或被清空）'}")
+        except Exception as e:
+            self.log(f"⚠️ [{tag}] 无法读取 bframe 状态: {e}")
+
     def solve(self, bframe):
         self.log("🤖 启动 Buster 过盾流程...")
         try:
@@ -72,6 +100,8 @@ class RecaptchaAudioSolver:
             if not audio_btn:
                 self.log("❌ 未找到音频按钮，challenge 可能未弹出")
                 return False
+
+            self._dump_bframe_state(bframe, tag="点击 Buster 前")
 
             # 2. 直接在 DOM 里定位 Buster 注入的小黄人按钮
             buster_btn = self._find_buster_button(bframe, max_wait=15)
@@ -90,15 +120,26 @@ class RecaptchaAudioSolver:
             self.log("⏳ 已点击 Buster 按钮，等待语音识别完成...")
             time.sleep(5)
 
+            # 点击 5 秒后立刻打印一次状态：观察 Buster 是否成功切到语音页面
+            self._dump_bframe_state(bframe, tag="点击 Buster 后 5s")
+
             # 4. 轮询状态与拦截检测
             return self.wait_solved(bframe)
 
         except Exception as e:
             self.log(f"💥 异常: {e}")
+            # 失败时落地一份现场，方便事后人工分析
+            try:
+                self._dump_bframe_state(bframe, tag="失败时刻")
+                self.page.get_screenshot(path="error_buster_phase.png", full_page=True)
+                self.log("📸 已保存 Buster 阶段失败截图: error_buster_phase.png")
+            except Exception:
+                pass
             return False
 
     def wait_solved(self, bframe, timeout=180):
         start_time = time.time()
+        last_dump = 0
         while time.time() - start_time < timeout:
             # 检查 token 是否成功生成
             token_ele = self.page.ele('xpath://textarea[@name="g-recaptcha-response"]', timeout=0.1)
@@ -114,12 +155,25 @@ class RecaptchaAudioSolver:
                     self.log("✅ checkbox OK")
                     return True
 
+            # 检查 Google 是否直接拒绝服务（"Try again later"）
+            doscaptcha = bframe.ele('.rc-doscaptcha-header-text', timeout=0.1)
+            if doscaptcha and doscaptcha.states.is_displayed:
+                txt = (doscaptcha.text or "").strip()
+                if txt:
+                    raise Exception(f"🚫 Google 拒绝服务（IP 风控）: {txt}")
+
             # 检查语音识别是否被 Google 拦截/报错 (快速熔断)
             err_msg = bframe.ele('.rc-audiochallenge-error-message', timeout=0.1)
             if err_msg and err_msg.states.is_displayed:
                 error_txt = err_msg.text
                 if error_txt and len(error_txt.strip()) > 0:
                     raise Exception(f"🚫 语音识别被拦截或出错: {error_txt}")
+
+            # 每 30 秒落一次 bframe 状态快照，便于在长等待中观察 Buster 进展
+            elapsed = int(time.time() - start_time)
+            if elapsed - last_dump >= 30:
+                last_dump = elapsed
+                self._dump_bframe_state(bframe, tag=f"等待中 {elapsed}s")
 
             time.sleep(2)
 
