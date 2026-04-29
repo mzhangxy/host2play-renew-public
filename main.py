@@ -1,0 +1,371 @@
+import os
+import sys
+import time
+import random
+import requests
+import tempfile
+from xvfbwrapper import Xvfb
+from DrissionPage import ChromiumPage, ChromiumOptions
+
+# ==============================================================================
+# Telegram 通知模块
+# ==============================================================================
+def send_tg_message(token, chat_id, message):
+    if not token or not chat_id:
+        print("未配置 TG_TOKEN 或 TG_CHAT_ID，跳过通知。")
+        return
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    safe_message = message.replace('<b>', '').replace('</b>', '')
+    payload = {"chat_id": chat_id, "text": safe_message, "parse_mode": "None"}
+    try:
+        requests.post(url, json=payload, timeout=10)
+        print("✅ Telegram 通知发送成功！")
+    except Exception as e:
+        print(f"❌ Telegram 通知请求异常: {e}")
+
+# ==============================================================================
+# 语音验证码破解模块 (DrissionPage + Buster 直接 DOM 定位版)
+# ==============================================================================
+class RecaptchaAudioSolver:
+    def __init__(self, page):
+        self.page = page
+        self.log_func = print
+
+    def log(self, msg):
+        self.log_func(f"[Solver] {msg}")
+
+    def _find_buster_button(self, bframe, max_wait=15):
+        """
+        🟢 修正：放弃几何对称推算，直接在 bframe 内部轮询查找 Buster 注入的按钮 DOM。
+        Buster 在 bframe 内部注入的按钮通常具有以下特征之一：
+          - .help-button-holder 容器下的 button
+          - id="solver-button"
+          - title 含有 "solver"
+        GitHub Actions 环境下 content_script 注入较慢，需轮询等待最多 15 秒。
+        """
+        self.log("🔍 正在等待 Buster 按钮注入到 bframe...")
+        deadline = time.time() + max_wait
+        selectors = [
+            'css:.help-button-holder button',
+            'css:#solver-button',
+            'css:button[title*="solver" i]',
+            'css:button[aria-labelledby*="solver" i]',
+        ]
+        while time.time() < deadline:
+            for sel in selectors:
+                try:
+                    btn = bframe.ele(sel, timeout=0.3)
+                    if btn and btn.states.is_displayed:
+                        self.log(f"✅ 找到 Buster 按钮 (selector: {sel})")
+                        return btn
+                except Exception:
+                    pass
+            time.sleep(0.5)
+        return None
+
+    def solve(self, bframe):
+        self.log("🤖 启动 Buster 过盾流程...")
+        try:
+            # 1. 等基础挑战 UI 渲染好（音频按钮出现就说明 challenge 弹出来了）
+            audio_btn = bframe.ele('#recaptcha-audio-button', timeout=10)
+            if not audio_btn:
+                self.log("❌ 未找到音频按钮，challenge 可能未弹出")
+                return False
+
+            # 2. 直接在 DOM 里定位 Buster 注入的小黄人按钮
+            buster_btn = self._find_buster_button(bframe, max_wait=15)
+            if not buster_btn:
+                self.log("❌ Buster 按钮未注入到 bframe — 扩展可能加载失败")
+                return False
+
+            # 3. 物理模拟点击 Buster 按钮（DrissionPage 会自动处理 iframe 嵌套偏移）
+            self.page.actions.move_to(buster_btn, duration=random.uniform(0.4, 0.9))
+            time.sleep(random.uniform(0.2, 0.5))
+            try:
+                buster_btn.click()
+            except Exception:
+                buster_btn.click(by_js=True)
+
+            self.log("⏳ 已点击 Buster 按钮，等待语音识别完成...")
+            time.sleep(5)
+
+            # 4. 轮询状态与拦截检测
+            return self.wait_solved(bframe)
+
+        except Exception as e:
+            self.log(f"💥 异常: {e}")
+            return False
+
+    def wait_solved(self, bframe, timeout=180):
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            # 检查 token 是否成功生成
+            token_ele = self.page.ele('xpath://textarea[@name="g-recaptcha-response"]', timeout=0.1)
+            if token_ele and len(token_ele.value) > 30:
+                self.log("✅ token OK")
+                return True
+
+            # 检查 checkbox 状态是否变更
+            anchor_frame = self.page.get_frame('xpath://iframe[contains(@src, "recaptcha/api2/anchor")]', timeout=0.1)
+            if anchor_frame:
+                anchor_box = anchor_frame.ele('#recaptcha-anchor', timeout=0.1)
+                if anchor_box and anchor_box.attr('aria-checked') == 'true':
+                    self.log("✅ checkbox OK")
+                    return True
+
+            # 检查语音识别是否被 Google 拦截/报错 (快速熔断)
+            err_msg = bframe.ele('.rc-audiochallenge-error-message', timeout=0.1)
+            if err_msg and err_msg.states.is_displayed:
+                error_txt = err_msg.text
+                if error_txt and len(error_txt.strip()) > 0:
+                    raise Exception(f"🚫 语音识别被拦截或出错: {error_txt}")
+
+            time.sleep(2)
+
+        raise Exception("❌ 验证码超时")
+
+# ==============================================================================
+# 核心续期业务逻辑
+# ==============================================================================
+def renew_host2play(url, proxy_url=None):
+    print("启动 Xvfb 虚拟桌面...")
+    vdisplay = Xvfb(width=1280, height=720, colordepth=24)
+    vdisplay.start()
+
+    success = False
+    msg = ""
+    page = None
+
+    try:
+        # ----------------------------------------------------------------------
+        # 🟢 修正：单次浏览器初始化（原代码这一整块写了两遍，导致双进程 + 时序错乱）
+        # ----------------------------------------------------------------------
+        co = ChromiumOptions()
+        co.set_browser_path('/usr/bin/google-chrome')
+        co.set_argument('--no-sandbox')
+        co.set_argument('--disable-dev-shm-usage')
+        co.set_argument('--disable-gpu')
+        co.set_argument('--disable-setuid-sandbox')
+        co.set_argument('--disable-software-rasterizer')
+        co.set_argument('--no-first-run')
+        co.set_argument('--no-default-browser-check')
+        co.set_argument('--disable-popup-blocking')
+        co.set_argument('--window-size=1280,720')
+        # 禁用站点隔离，确保扩展的 content_script 能注入到跨域的 Google iframe 中
+        co.set_argument('--disable-site-isolation-trials')
+
+        ext_buster_path = os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "extensions/buster/unpacked")
+        )
+        if os.path.exists(ext_buster_path):
+            print(f"🧩 加载 Buster 扩展: {ext_buster_path}")
+            # 同时使用 add_extension（DrissionPage 原生 API）和 --load-extension/--disable-extensions-except
+            # 双保险：保证扩展在所有上下文（包括 iframe）中都被注册
+            co.add_extension(ext_buster_path)
+            co.set_argument(f'--disable-extensions-except={ext_buster_path}')
+            co.set_argument(f'--load-extension={ext_buster_path}')
+        else:
+            print("⚠️ 未找到 Buster 扩展目录，扩展加载可能失败！")
+
+        user_data_dir = tempfile.mkdtemp()
+        co.set_user_data_path(user_data_dir)
+        co.auto_port()
+        co.headless(False)
+
+        if proxy_url:
+            if "://" not in proxy_url:
+                proxy_url = f"http://{proxy_url}"
+            co.set_proxy(proxy_url)
+
+        page = ChromiumPage(co)
+
+        # 🟢 GitHub Actions 慢，给扩展足够的时间在后台 service worker 唤醒
+        print("⏳ 等待 Buster 扩展在后台初始化加载...")
+        time.sleep(8)
+
+        print("🛡️ 注入 WebGL 硬件欺骗与反侦察指纹...")
+        page.add_init_js("""
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) return 'Intel Inc.';
+                if (parameter === 37446) return 'Intel(R) UHD Graphics 630';
+                return getParameter.apply(this, [parameter]);
+            };
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3]});
+        """)
+
+        print(f"🌐 访问续期目标网址: {url}")
+        page.get(url, retry=3)
+
+        # 确保文档加载完成，防止因 Cloudflare 等盾牌重定向导致 The page is refreshed 错误
+        page.wait.doc_loaded()
+        time.sleep(random.uniform(5, 8))
+
+        print("🧹 清理遮挡元素...")
+        try:
+            page.run_js("""
+                const cssSelectors = ['ins.adsbygoogle', 'iframe[src*="ads"]', '.modal-backdrop'];
+                cssSelectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => el.remove());
+                });
+            """)
+        except Exception as e:
+            print(f"⚠️ 清理遮挡元素时忽略异常 (页面可能正在加载中): {str(e)[:100]}")
+
+        time.sleep(2)
+
+        consent_btn = page.ele('tag:button@@text():Consent', timeout=2)
+        if consent_btn:
+            try:
+                consent_btn.click()
+                time.sleep(3)
+            except: pass
+
+        print("🤸 积累真实的鼠标轨迹和滚动数据...")
+        for _ in range(3):
+            scroll_y = random.randint(200, 600)
+            page.scroll.down(scroll_y)
+            time.sleep(random.uniform(0.5, 1.5))
+            page.actions.move(random.randint(100, 800), random.randint(100, 500))
+            time.sleep(random.uniform(0.5, 1.0))
+        time.sleep(random.uniform(1.0, 2.0))
+
+        print("🖱️ 打开续期弹窗...")
+        renew_btn1 = page.ele('xpath://button[contains(text(), "Renew server")]', timeout=5)
+        if renew_btn1:
+            try:
+                renew_btn1.click()
+            except:
+                renew_btn1.click(by_js=True)
+        else:
+            try:
+                page.run_js("document.querySelectorAll('button').forEach(b => {if(b.textContent.includes('Renew server')) b.click();});")
+            except: pass
+        time.sleep(3)
+
+        for _ in range(8):
+            if page.ele('text:Expires in:', timeout=0.5) or page.ele('text:Deletes on:', timeout=0.5):
+                break
+            time.sleep(1)
+
+        renew_btn2 = page.ele('xpath://button[contains(text(), "Renew server")]', timeout=2)
+        if renew_btn2:
+            try:
+                renew_btn2.click()
+            except:
+                renew_btn2.click(by_js=True)
+
+        time.sleep(random.uniform(7, 10))
+
+        solved_captcha = False
+        anchor_frame = page.get_frame('xpath://iframe[contains(@src, "recaptcha/api2/anchor")]', timeout=5)
+
+        if anchor_frame:
+            print("✅ 锁定 reCAPTCHA 框架")
+            anchor_box = None
+
+            for _ in range(20):
+                anchor_box = anchor_frame.ele('#recaptcha-anchor', timeout=1)
+                if anchor_box:
+                    break
+                time.sleep(1)
+
+            if not anchor_box:
+                msg = "❌ host2 reCAPTCHA checkbox 超时"
+                try:
+                    page.handle_alert(accept=True)
+                    page.get_screenshot(path="error_anchor_timeout.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_anchor_timeout.png")
+                except Exception as dump_err:
+                    print(f"⚠️ 保存截图失败: {dump_err}")
+                return success, msg
+
+            print("🖱️ 物理模拟点击 reCAPTCHA checkbox...")
+            page.actions.move_to(anchor_box, duration=random.uniform(0.5, 1.5))
+            time.sleep(random.uniform(0.2, 0.6))
+            anchor_box.click()
+            time.sleep(random.uniform(4, 7))
+
+            checked = anchor_box.attr('aria-checked')
+
+            if checked == 'true':
+                print("✅ reCAPTCHA 已自动验证通过！")
+                solved_captcha = True
+            else:
+                print("🎲 触发 challenge，调用 Buster 进行破解...")
+                bframe = page.get_frame('xpath://iframe[contains(@src, "recaptcha/api2/bframe")]', timeout=5)
+                if bframe:
+                    solver = RecaptchaAudioSolver(page)
+                    if solver.solve(bframe):
+                        solved_captcha = True
+        else:
+            print("⚠️ 未发现 reCAPTCHA iframe")
+            try:
+                page.handle_alert(accept=True)
+                page.get_screenshot(path="error_no_iframe.png", full_page=True)
+                print("✅ 已瞬间保存现场截图: error_no_iframe.png")
+            except Exception as dump_err:
+                print(f"⚠️ 保存截图失败: {dump_err}")
+            msg = "❌ host2 未找到 reCAPTCHA 验证码区域，请检查源码。"
+
+        if solved_captcha:
+            print("🚀 验证完成，点击最终 Renew...")
+            final_btn = page.ele('xpath://button[normalize-space(text())="Renew"]', timeout=3)
+            if final_btn:
+                try:
+                    final_btn.click()
+                except:
+                    final_btn.click(by_js=True)
+                time.sleep(10)
+                msg = "🎉 host2 续期操作成功！"
+                success = True
+            else:
+                msg = "❌ host2 找不到最终 Renew 按钮"
+                try:
+                    page.handle_alert(accept=True)
+                    page.get_screenshot(path="error_no_final_btn.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_no_final_btn.png")
+                except Exception as dump_err:
+                    print(f"⚠️ 保存截图失败: {dump_err}")
+        else:
+            if "操作成功" not in msg:
+                msg = "❌ host2 无法通过 reCAPTCHA"
+                try:
+                    page.handle_alert(accept=True)
+                    page.get_screenshot(path="error_captcha_failed.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_captcha_failed.png")
+                except Exception as dump_err:
+                    print(f"⚠️ 保存截图失败: {dump_err}")
+
+    except Exception as e:
+        msg = f"💥 host2 运行异常: {str(e)[:200]}"
+        print(msg)
+        if page:
+            try:
+                page.get_screenshot(path="error_crash.png", full_page=True)
+                print("✅ 已保存崩溃现场截图: error_crash.png")
+            except:
+                pass
+    finally:
+        if page:
+            try: page.quit()
+            except: pass
+        vdisplay.stop()
+        return success, msg
+
+if __name__ == "__main__":
+    renew_url = os.getenv("RENEW_URL")
+    tg_token = os.getenv("TG_TOKEN")
+    tg_chat_id = os.getenv("TG_CHAT_ID")
+    proxy_url = os.getenv("PROXY", None)
+
+    if not renew_url:
+        print("❌ 缺少 RENEW_URL")
+        sys.exit(1)
+
+    is_success, result_message = renew_host2play(renew_url, proxy_url)
+    send_tg_message(tg_token, tg_chat_id, result_message)
+    if not is_success: sys.exit(1)
