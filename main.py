@@ -46,23 +46,25 @@ class RecaptchaAudioSolver:
                 self.log("❌ 未找到基础按钮，无法计算坐标")
                 return False
 
-            # 给 Buster 扩展 1 秒钟的时间，确保其按钮已成功注入到 DOM 中
+            # 给 Buster 扩展 1 秒钟的时间，确保其按钮已成功渲染到 DOM 中
             time.sleep(1)
 
-            # 2. 计算对称物理坐标
-            r_x, r_y = reload_btn.rect.midpoint
-            a_x, a_y = audio_btn.rect.midpoint
-
+            # 2. 🟢 修正版几何定位：计算相对坐标并执行“相对物理偏移”点击
+            # 使用 viewport_midpoint 获取视口坐标，仅计算水平间距 dx
+            # 彻底丢弃绝对 Y 坐标的计算，避免 -9463 这种跑到火星去的坐标 bug
+            r_x = reload_btn.rect.viewport_midpoint[0]
+            a_x = audio_btn.rect.viewport_midpoint[0]
             dx = a_x - r_x
-            dy = a_y - r_y
-
-            target_x = a_x + dx
-            target_y = a_y + dy
-
-            self.log(f"📍 Solver 计算物理点击坐标: {round(target_x)}, {round(target_y)}")
             
-            # 模拟真实鼠标物理点击目标坐标
-            self.page.actions.move_to((target_x, target_y), duration=random.uniform(0.3, 0.8)).click()
+            self.log(f"📍 Solver 计算水平偏移量 dx: {dx}")
+            
+            # 🟢 物理模拟动作链：
+            # 1. 让鼠标先精准落在“音频按钮”正中心 (DrissionPage 会自动处理所有的 iframe 嵌套偏移)
+            self.page.actions.move_to(audio_btn, duration=random.uniform(0.3, 0.8))
+            time.sleep(0.3)  # 稍微停顿，模拟人手操作
+            # 2. 鼠标向右平移 dx 距离，直接命中对称位置的小黄人并点击！
+            self.page.actions.move(offset_x=dx, offset_y=0).click()
+            
             time.sleep(5)
 
             # 3. 轮询状态与拦截检测
