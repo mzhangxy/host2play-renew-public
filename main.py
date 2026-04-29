@@ -8,7 +8,7 @@ from xvfbwrapper import Xvfb
 from DrissionPage import ChromiumPage, ChromiumOptions
 
 # ==============================================================================
-# Telegram 通知模块 (保持原样)
+# Telegram 通知模块
 # ==============================================================================
 def send_tg_message(token, chat_id, message):
     if not token or not chat_id:
@@ -46,11 +46,10 @@ class RecaptchaAudioSolver:
                 self.log("❌ 未找到基础按钮，无法计算坐标")
                 return False
 
-            # 🟢 优化点 1：给 Buster 扩展 1 秒钟的时间，确保其按钮已成功注入到 DOM 中
+            # 给 Buster 扩展 1 秒钟的时间，确保其按钮已成功注入到 DOM 中
             time.sleep(1)
 
             # 2. 计算对称物理坐标
-            # ele.rect.midpoint 返回元素相对于页面的 (x, y) 中心坐标
             r_x, r_y = reload_btn.rect.midpoint
             a_x, a_y = audio_btn.rect.midpoint
 
@@ -90,7 +89,7 @@ class RecaptchaAudioSolver:
                     self.log("✅ checkbox OK")
                     return True
 
-            # 🟢 优化点 3：检查语音识别是否被 Google 拦截/报错 (快速熔断)
+            # 检查语音识别是否被 Google 拦截/报错 (快速熔断)
             err_msg = bframe.ele('.rc-audiochallenge-error-message', timeout=0.1)
             if err_msg and err_msg.states.is_displayed:
                 error_txt = err_msg.text
@@ -126,7 +125,7 @@ def renew_host2play(url, proxy_url=None):
         co.set_argument('--disable-popup-blocking')
         co.set_argument('--window-size=1280,720')
         
-        # 🟡 注入 Buster 扩展 (替换掉原来的 --disable-extensions)
+        # 🟡 注入 Buster 扩展
         ext_buster_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "extensions/buster/unpacked"))
         if os.path.exists(ext_buster_path):
             print(f"🧩 加载 Buster 扩展: {ext_buster_path}")
@@ -162,21 +161,31 @@ def renew_host2play(url, proxy_url=None):
 
         print(f"🌐 访问续期目标网址: {url}")
         page.get(url, retry=3)
+        
+        # 🟢 新增：确保文档加载完成，防止因 Cloudflare 等盾牌重定向导致 The page is refreshed 错误
+        page.wait.doc_loaded()
         time.sleep(random.uniform(5, 8))
 
         print("🧹 清理遮挡元素...")
-        page.run_js("""
-            const cssSelectors = ['ins.adsbygoogle', 'iframe[src*="ads"]', '.modal-backdrop'];
-            cssSelectors.forEach(sel => {
-                document.querySelectorAll(sel).forEach(el => el.remove());
-            });
-        """)
+        try:
+            page.run_js("""
+                const cssSelectors = ['ins.adsbygoogle', 'iframe[src*="ads"]', '.modal-backdrop'];
+                cssSelectors.forEach(sel => {
+                    document.querySelectorAll(sel).forEach(el => el.remove());
+                });
+            """)
+        except Exception as e:
+            # 捕获因页面可能正在发生二次刷新导致的 JS 注入异常，保持流程继续
+            print(f"⚠️ 清理遮挡元素时忽略异常 (页面可能正在加载中): {str(e)[:100]}")
+            
         time.sleep(2)
 
         consent_btn = page.ele('tag:button@@text():Consent', timeout=2)
         if consent_btn:
-            consent_btn.click()
-            time.sleep(3)
+            try:
+                consent_btn.click()
+                time.sleep(3)
+            except: pass
 
         print("🤸 积累真实的鼠标轨迹和滚动数据...")
         for _ in range(3):
@@ -188,14 +197,16 @@ def renew_host2play(url, proxy_url=None):
         time.sleep(random.uniform(1.0, 2.0))
 
         print("🖱️ 打开续期弹窗...")
-        renew_btn1 = page.ele('xpath://button[contains(text(), "Renew server")]', timeout=3)
+        renew_btn1 = page.ele('xpath://button[contains(text(), "Renew server")]', timeout=5)
         if renew_btn1:
             try:
                 renew_btn1.click() 
             except:
                 renew_btn1.click(by_js=True)
         else:
-            page.run_js("document.querySelectorAll('button').forEach(b => {if(b.textContent.includes('Renew server')) b.click();});")
+            try:
+                page.run_js("document.querySelectorAll('button').forEach(b => {if(b.textContent.includes('Renew server')) b.click();});")
+            except: pass
         time.sleep(3)
 
         for _ in range(8):
@@ -229,11 +240,10 @@ def renew_host2play(url, proxy_url=None):
                 msg = "❌ host2 reCAPTCHA checkbox 超时"
                 try:
                     page.handle_alert(accept=True)
-                    with open("error_anchor_timeout.html", "w", encoding="utf-8") as f:
-                        f.write(page.html)
-                    print("✅ 已瞬间保存现场的 HTML 源码")
+                    page.get_screenshot(path="error_anchor_timeout.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_anchor_timeout.png")
                 except Exception as dump_err:
-                    print(f"⚠️ 保存源码失败: {dump_err}")
+                    print(f"⚠️ 保存截图失败: {dump_err}")
                 return success, msg
 
             print("🖱️ 物理模拟点击 reCAPTCHA checkbox...")
@@ -258,11 +268,10 @@ def renew_host2play(url, proxy_url=None):
             print("⚠️ 未发现 reCAPTCHA iframe")
             try:
                 page.handle_alert(accept=True)
-                with open("error_no_iframe.html", "w", encoding="utf-8") as f:
-                    f.write(page.html)
-                print("✅ 已瞬间保存现场的 HTML 源码")
+                page.get_screenshot(path="error_no_iframe.png", full_page=True)
+                print("✅ 已瞬间保存现场截图: error_no_iframe.png")
             except Exception as dump_err:
-                print(f"⚠️ 保存源码失败: {dump_err}")
+                print(f"⚠️ 保存截图失败: {dump_err}")
             msg = "❌ host2 未找到 reCAPTCHA 验证码区域，请检查源码。"
 
         if solved_captcha:
@@ -280,25 +289,30 @@ def renew_host2play(url, proxy_url=None):
                 msg = "❌ host2 找不到最终 Renew 按钮"
                 try:
                     page.handle_alert(accept=True)
-                    with open("error_no_final_btn.html", "w", encoding="utf-8") as f:
-                        f.write(page.html)
-                    print("✅ 已瞬间保存现场的 HTML 源码")
+                    page.get_screenshot(path="error_no_final_btn.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_no_final_btn.png")
                 except Exception as dump_err:
-                    print(f"⚠️ 保存源码失败: {dump_err}")
+                    print(f"⚠️ 保存截图失败: {dump_err}")
         else:
             if "操作成功" not in msg:
                 msg = "❌ host2 无法通过 reCAPTCHA"
                 try:
                     page.handle_alert(accept=True)
-                    with open("error_captcha_failed.html", "w", encoding="utf-8") as f:
-                        f.write(page.html)
-                    print("✅ 已瞬间保存现场的 HTML 源码")
+                    page.get_screenshot(path="error_captcha_failed.png", full_page=True)
+                    print("✅ 已瞬间保存现场截图: error_captcha_failed.png")
                 except Exception as dump_err:
-                    print(f"⚠️ 保存源码失败: {dump_err}")
+                    print(f"⚠️ 保存截图失败: {dump_err}")
 
     except Exception as e:
         msg = f"💥 host2 运行异常: {str(e)[:200]}"
         print(msg)
+        # 🟢 新增：在发生全局异常时（如 The page is refreshed 彻底崩溃），截取最终现场
+        if page:
+            try:
+                page.get_screenshot(path="error_crash.png", full_page=True)
+                print("✅ 已保存崩溃现场截图: error_crash.png")
+            except:
+                pass
     finally:
         if page:
             try: page.quit()
@@ -310,7 +324,7 @@ if __name__ == "__main__":
     renew_url = os.getenv("RENEW_URL")
     tg_token = os.getenv("TG_TOKEN")
     tg_chat_id = os.getenv("TG_CHAT_ID")
-    proxy_url = os.getenv("PROXY", "None")
+    proxy_url = os.getenv("PROXY", None)
 
     if not renew_url:
         print("❌ 缺少 RENEW_URL")
