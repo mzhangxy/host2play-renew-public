@@ -122,8 +122,39 @@ def renew_host2play(url, proxy_url=None):
         co.set_argument('--disable-software-rasterizer')
         co.set_argument('--no-first-run')
         co.set_argument('--no-default-browser-check')
+        # [原有代码保留]
         co.set_argument('--disable-popup-blocking')
         co.set_argument('--window-size=1280,720')
+        
+        # 🟢 新增：禁用站点隔离，确保扩展的 content_script 能顺利注入到跨域的 Google iframe 中
+        co.set_argument('--disable-site-isolation-trials') 
+        
+        ext_buster_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "extensions/buster/unpacked"))
+        if os.path.exists(ext_buster_path):
+            print(f"🧩 加载 Buster 扩展: {ext_buster_path}")
+            # 🟢 修正 1：使用 DrissionPage 原生的 API 加载扩展，取代底层的 set_argument
+            co.add_extension(ext_buster_path)
+        else:
+            print("⚠️ 未找到 Buster 扩展目录，扩展加载可能失败！")
+
+        user_data_dir = tempfile.mkdtemp()
+        co.set_user_data_path(user_data_dir)
+        co.auto_port() 
+        co.headless(False)
+
+        if proxy_url:
+            if "://" not in proxy_url:
+                proxy_url = f"http://{proxy_url}"
+            co.set_proxy(proxy_url)
+
+        page = ChromiumPage(co)
+
+        # 🟢 修正 2：复刻你 JS 脚本里的 waitExtensionLoaded 逻辑，给浏览器 5 秒钟时间唤醒并注册 Buster
+        print("⏳ 等待 Buster 扩展在后台初始化加载...")
+        time.sleep(5)
+
+        print("🛡️ 注入 WebGL 硬件欺骗与反侦察指纹...")
+        # [后续原有代码完全保留不变]
         
         # 🟡 注入 Buster 扩展
         ext_buster_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "extensions/buster/unpacked"))
