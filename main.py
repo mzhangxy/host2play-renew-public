@@ -310,7 +310,7 @@ if __name__ == "__main__":
     renew_url = os.getenv("RENEW_URL")
     tg_token = os.getenv("TG_TOKEN")
     tg_chat_id = os.getenv("TG_CHAT_ID")
-    proxy_url = os.getenv("PROXY", "127.0.0.1:10808")
+    proxy_url = os.getenv("PROXY", "None")
 
     if not renew_url:
         print("❌ 缺少 RENEW_URL")
