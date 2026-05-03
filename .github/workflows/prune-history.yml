@@ -1,0 +1,23 @@
+name: Cleanup Workflow History
+
+on:
+  schedule:
+    - cron: '0 0 */2 * *'
+  # 允许手动运行，方便你随时测试清理效果
+  workflow_dispatch:
+
+jobs:
+  delete-runs:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write # 必须拥有写入权限
+    steps:
+      - name: Delete old runs
+        uses: Mattraider/delete-workflow-runs-action@v2
+        with:
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 2
+          # 如果你想清理特定的工作流，可以指定文件名或名称
+          # workflow_id: 'main.yml'
