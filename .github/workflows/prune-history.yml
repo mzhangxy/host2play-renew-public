@@ -15,22 +15,28 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          WORKFLOW_NAME="server_renew.yml"
-          # 获取当前仓库名称 (例如: username/repo-name)
           REPO="${{ github.repository }}"
           
-          echo "Checking runs for $WORKFLOW_NAME in $REPO..."
+          # 🟢 在这里定义所有需要清理的工作流文件名（用空格隔开）
+          # 注意：请将 cleanup.yml 替换为你实际保存这个清理工作流的文件名
+          WORKFLOWS=("server_renew.yml" "prune-history.yml" "renew_s5.yml
+          " "renew_buster.yml")
           
-          # 1. 获取要删除的 ID 列表 (增加 -R "$REPO" 指定仓库)
-          RUNS_TO_DELETE=$(gh run list -R "$REPO" --workflow "$WORKFLOW_NAME" --limit 100 --json databaseId --jq '.[2:].[] | .databaseId')
-          
-          # 2. 判断是否有需要删除的内容
-          if [ -z "$RUNS_TO_DELETE" ]; then
-            echo "No old runs to delete."
-          else
-            echo "Deleting the following runs:"
-            echo "$RUNS_TO_DELETE"
-            # 批量删除 (增加 -R "$REPO" 指定仓库)
-            echo "$RUNS_TO_DELETE" | xargs -I{} gh run delete {} -R "$REPO"
-            echo "Cleanup complete."
-          fi
+          # 遍历每一个工作流并执行清理
+          for WORKFLOW_NAME in "${WORKFLOWS[@]}"; do
+            echo "========================================"
+            echo "🔍 Checking runs for $WORKFLOW_NAME in $REPO..."
+            
+            # 1. 获取要删除的 ID 列表 (保留最新的 2 个)
+            RUNS_TO_DELETE=$(gh run list -R "$REPO" --workflow "$WORKFLOW_NAME" --limit 100 --json databaseId --jq '.[2:].[] | .databaseId')
+            
+            # 2. 判断是否有需要删除的内容
+            if [ -z "$RUNS_TO_DELETE" ]; then
+              echo "✅ No old runs to delete for $WORKFLOW_NAME."
+            else
+              echo "🗑️ Deleting old runs for $WORKFLOW_NAME..."
+              # 批量删除
+              echo "$RUNS_TO_DELETE" | xargs -I{} gh run delete {} -R "$REPO"
+              echo "✨ Cleanup complete for $WORKFLOW_NAME."
+            fi
+          done
