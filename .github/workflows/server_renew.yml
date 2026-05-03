@@ -87,4 +87,4 @@ jobs:
         with:
           name: debug-screenshots 
           path: ./*.html 
-          retention-days: 2
+          retention-days: 1
