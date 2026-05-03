@@ -19,8 +19,7 @@ jobs:
           
           # 🟢 在这里定义所有需要清理的工作流文件名（用空格隔开）
           # 注意：请将 cleanup.yml 替换为你实际保存这个清理工作流的文件名
-          WORKFLOWS=("server_renew.yml" "prune-history.yml" "renew_s5.yml
-          " "renew_buster.yml")
+          WORKFLOWS=("server_renew.yml" "prune-history.yml" "renew_s5.yml" "renew_buster.yml")
           
           # 遍历每一个工作流并执行清理
           for WORKFLOW_NAME in "${WORKFLOWS[@]}"; do
