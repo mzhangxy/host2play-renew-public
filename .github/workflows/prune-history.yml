@@ -3,21 +3,23 @@ name: Cleanup Workflow History
 on:
   schedule:
     - cron: '0 0 */2 * *'
-  # 允许手动运行，方便你随时测试清理效果
   workflow_dispatch:
 
 jobs:
   delete-runs:
     runs-on: ubuntu-latest
     permissions:
-      actions: write # 必须拥有写入权限
+      actions: write
     steps:
       - name: Delete old runs
-        uses: Mattraider/delete-workflow-runs-action@v2
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 0
-          keep_minimum_runs: 2
-          # 如果你想清理特定的工作流，可以指定文件名或名称
-          # workflow_id: 'main.yml'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 获取工作流列表并针对每个工作流保留最新的 2 个记录
+          WORKFLOW_NAME="server_renew.yml"
+          
+          echo "Cleaning up runs for $WORKFLOW_NAME..."
+          
+          # 获取所有运行记录的 ID，排除掉最新的 2 条，然后删除剩下的
+          gh run list --workflow "$WORKFLOW_NAME" --limit 100 --json databaseId  --jq '.[2:].[] | .databaseId' | \
+          xargs -I{} gh run delete {}
