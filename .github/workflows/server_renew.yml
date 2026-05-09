@@ -3,7 +3,7 @@ name: Auto Renew Server Script
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 */6 * * *' # 示例：每 6 小时运行一次 (UTC时间)
+    - cron: '0 12 * * *' # 示例：每天运行一次 (UTC时间)
 
 jobs:
   run-renew:
