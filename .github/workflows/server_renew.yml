@@ -69,9 +69,9 @@ jobs:
       # 🟡 启用 Cloudflare WARP 
       # =========================
       - name: Enable Cloudflare WARP
-        uses: fscarmen/warp-on-actions@v1.3
+        uses: fscarmen/warp-on-actions@v1.4
         with:
-          stack: dual
+          stack: ipv4
           mode: client
 
       # =========================
