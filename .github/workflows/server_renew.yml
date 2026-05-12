@@ -28,54 +28,38 @@ jobs:
       # =========================
       - name: Move private repo files to root
         run: |
-          # 使用 cp -a 将隐藏文件一起复制到根目录，然后删掉空文件夹
           cp -a private/. ./
           rm -rf private
 
-      # =========================
-      # 🟡 1️⃣ 全局网络与 APT 终极优化 (必须放在最前面！)
-      # =========================
-      - name: Global Network & APT Optimization
-        run: |
-          echo "🔄 禁用 IPv6 (防止 APT 假死)..."
-          echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
-          
-          echo "🚫 全局禁用推荐安装包 (防止 WARP 偷偷下载几百兆的桌面 GUI)..."
-          echo 'APT::Install-Recommends "false";' | sudo tee /etc/apt/apt.conf.d/99no-install-recommends
-          echo 'APT::Install-Suggests "false";' | sudo tee -a /etc/apt/apt.conf.d/99no-install-recommends
-          
-          echo "🌍 暴力替换所有配置文件中的 Azure 镜像源..."
-          # 针对 Ubuntu 24.04 深度扫描并强行替换为官方主源
-          sudo find /etc/apt/ -type f -exec sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' {} +
-          sudo apt-get update
-      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10' 
 
       # =========================
-      # 🟡 安装系统依赖与声卡伪装 (极速版 + 换源防卡顿)
+      # 🟡 1️⃣ 全局网络优化与系统依赖 (极速合并版)
       # =========================
       - name: Install System Dependencies & Audio
         run: |
-          echo "🔄 优化 APT 网络配置，避开卡顿的 Azure 节点..."
-          # 1. 强制 APT 使用 IPv4，解决最常见的网络假死/干等问题
-          sudo bash -c 'echo "Acquire::ForceIPv4 \"true\";" > /etc/apt/apt.conf.d/99force-ipv4'
-          # 2. 将坑人的 Azure 镜像源强制替换为 Ubuntu 官方全球主源
-          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          echo "🔄 1. 禁用 IPv6 与无用推荐包 (防止 APT 假死和夹带私货)..."
+          echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
+          echo 'APT::Install-Recommends "false";' | sudo tee /etc/apt/apt.conf.d/99no-install-recommends
+          echo 'APT::Install-Suggests "false";' | sudo tee -a /etc/apt/apt.conf.d/99no-install-recommends
           
-          echo "📥 更新软件菜单..."
+          echo "🌍 2. 暴力替换 Azure 镜像源为 Ubuntu 官方主源..."
+          sudo find /etc/apt/ -type f -exec sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' {} +
+          
+          echo "📥 3. 更新软件菜单..."
           sudo apt-get update
           
-          echo "📦 开始安装极简依赖..."
-          sudo apt-get install -y --no-install-recommends xvfb ffmpeg unzip curl pulseaudio alsa-utils
+          echo "📦 4. 安装极简依赖..."
+          sudo apt-get install -y xvfb ffmpeg unzip curl pulseaudio alsa-utils
           
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get install -y --no-install-recommends google-chrome-stable
+          sudo apt-get install -y google-chrome-stable
           
-          echo "🔊 配置虚拟声卡..."
+          echo "🔊 5. 配置虚拟声卡..."
           pulseaudio --start --exit-idle-time=-1 || true
           pactl load-module module-null-sink sink_name=virtual_speaker || true
           pactl set-default-sink virtual_speaker || true
@@ -83,7 +67,7 @@ jobs:
           pactl set-default-source virtual_mic || true
 
       # =========================
-      # 🟡 启用 Cloudflare WARP 
+      # 🟡 2️⃣ 启用 Cloudflare WARP 
       # =========================
       - name: Enable Cloudflare WARP
         uses: fscarmen/warp-on-actions@v1.4
@@ -92,7 +76,7 @@ jobs:
           mode: client
 
       # =========================
-      # 🟡 安装 Python 依赖 (仅保留 DP)
+      # 🟡 3️⃣ 安装 Python 依赖 
       # =========================
       - name: Install Python Dependencies
         run: |
@@ -100,13 +84,14 @@ jobs:
           pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
 
       # =========================
-      # 🟡 执行续订 (最大 15 次 IP 轮换)
+      # 🟡 4️⃣ 执行续订 (最大 15 次 IP 轮换)
       # =========================
       - name: Run Renew Script with IP Rotation
         env:
           RENEW_URL: ${{ secrets.RENEW_URL }}
           TG_TOKEN: ${{ secrets.TG_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TARGET_NAME: ${{ secrets.TARGET_NAME }}
         run: |
           echo "🔧 应用 DNS 补丁..."
           sudo systemctl stop systemd-resolved 2>/dev/null || true
@@ -123,7 +108,6 @@ jobs:
             echo "🌍 当前 IP: $(curl -s https://api.ipify.org)"
             echo "========================================="
             
-            # 运行 Python 脚本
             set +e 
             python main.py
             EXIT_CODE=$?
@@ -150,7 +134,7 @@ jobs:
           exit 1
 
       # =========================
-      # 🟡 上传日志
+      # 🟡 5️⃣ 上传日志
       # =========================
       - name: Upload Debug Artifacts
         uses: actions/upload-artifact@v4
