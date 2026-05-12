@@ -38,19 +38,27 @@ jobs:
           python-version: '3.10' 
 
       # =========================
-      # 🟡 安装系统依赖与声卡伪装
+      # 🟡 安装系统依赖与声卡伪装 (极速版 + 换源防卡顿)
       # =========================
       - name: Install System Dependencies & Audio
         run: |
+          echo "🔄 优化 APT 网络配置，避开卡顿的 Azure 节点..."
+          # 1. 强制 APT 使用 IPv4，解决最常见的网络假死/干等问题
+          sudo bash -c 'echo "Acquire::ForceIPv4 \"true\";" > /etc/apt/apt.conf.d/99force-ipv4'
+          # 2. 将坑人的 Azure 镜像源强制替换为 Ubuntu 官方全球主源
+          sudo sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          
+          echo "📥 更新软件菜单..."
           sudo apt-get update
-          # 🟢 加上 --no-install-recommends，不下载无用的桌面驱动和语音包
+          
+          echo "📦 开始安装极简依赖..."
           sudo apt-get install -y --no-install-recommends xvfb ffmpeg unzip curl pulseaudio alsa-utils
           
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
           sudo apt-get install -y --no-install-recommends google-chrome-stable
           
-          # 启动虚拟音频设备 (解决 Chrome 因无声卡而拒绝提供音频验证码)
+          echo "🔊 配置虚拟声卡..."
           pulseaudio --start --exit-idle-time=-1 || true
           pactl load-module module-null-sink sink_name=virtual_speaker || true
           pactl set-default-sink virtual_speaker || true
