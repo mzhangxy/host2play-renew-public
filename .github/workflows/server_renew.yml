@@ -32,6 +32,23 @@ jobs:
           cp -a private/. ./
           rm -rf private
 
+      # =========================
+      # 🟡 1️⃣ 全局网络与 APT 终极优化 (必须放在最前面！)
+      # =========================
+      - name: Global Network & APT Optimization
+        run: |
+          echo "🔄 禁用 IPv6 (防止 APT 假死)..."
+          echo 'Acquire::ForceIPv4 "true";' | sudo tee /etc/apt/apt.conf.d/99force-ipv4
+          
+          echo "🚫 全局禁用推荐安装包 (防止 WARP 偷偷下载几百兆的桌面 GUI)..."
+          echo 'APT::Install-Recommends "false";' | sudo tee /etc/apt/apt.conf.d/99no-install-recommends
+          echo 'APT::Install-Suggests "false";' | sudo tee -a /etc/apt/apt.conf.d/99no-install-recommends
+          
+          echo "🌍 暴力替换所有配置文件中的 Azure 镜像源..."
+          # 针对 Ubuntu 24.04 深度扫描并强行替换为官方主源
+          sudo find /etc/apt/ -type f -exec sed -i 's/azure.archive.ubuntu.com/archive.ubuntu.com/g' {} +
+          sudo apt-get update
+      
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
