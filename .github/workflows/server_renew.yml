@@ -3,7 +3,7 @@ name: Auto Renew Server Script
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 12 * * *' # 示例：每天运行一次 (UTC时间)
+    - cron: '0 */7 * * *' 
 
 jobs:
   run-renew:
@@ -43,14 +43,14 @@ jobs:
       - name: Install System Dependencies & Audio
         run: |
           sudo apt-get update
-          # 🟢 核心提速秘籍：加上 --no-install-recommends，拒绝下载无用的桌面驱动和语音包
+          # 🟢 加上 --no-install-recommends，不下载无用的桌面驱动和语音包
           sudo apt-get install -y --no-install-recommends xvfb ffmpeg unzip curl pulseaudio alsa-utils
           
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
           sudo apt-get install -y --no-install-recommends google-chrome-stable
           
-          # 启动虚拟音频设备 (必须保留，防止 Chrome 因无声卡而拒绝提供音频验证码)
+          # 启动虚拟音频设备 (解决 Chrome 因无声卡而拒绝提供音频验证码)
           pulseaudio --start --exit-idle-time=-1 || true
           pactl load-module module-null-sink sink_name=virtual_speaker || true
           pactl set-default-sink virtual_speaker || true
@@ -75,7 +75,7 @@ jobs:
           pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
 
       # =========================
-      # 🟡 执行续订 (带 15 次 IP 轮换)
+      # 🟡 执行续订 (最大 15 次 IP 轮换)
       # =========================
       - name: Run Renew Script with IP Rotation
         env:
@@ -125,7 +125,7 @@ jobs:
           exit 1
 
       # =========================
-      # 🟡 上传日志供复盘
+      # 🟡 上传日志
       # =========================
       - name: Upload Debug Artifacts
         uses: actions/upload-artifact@v4
@@ -135,4 +135,4 @@ jobs:
           path: |
             ./*.png
             ./*.html
-          retention-days: 3
+          retention-days: 1
