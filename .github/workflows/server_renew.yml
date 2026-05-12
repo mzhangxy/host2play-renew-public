@@ -37,7 +37,7 @@ jobs:
           python-version: '3.10' 
 
       # =========================
-      # 🟡 1️⃣ 全局网络优化与系统依赖 (极速合并版)
+      # 🟡 1️⃣ 全局网络优化与系统依赖
       # =========================
       - name: Install System Dependencies & Audio
         run: |
@@ -72,7 +72,7 @@ jobs:
       - name: Enable Cloudflare WARP
         uses: fscarmen/warp-on-actions@v1.4
         with:
-          stack: ipv4
+          stack: dual
           mode: client
 
       # =========================
