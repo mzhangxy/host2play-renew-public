@@ -43,10 +43,12 @@ jobs:
       - name: Install System Dependencies & Audio
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb ffmpeg unzip curl pulseaudio alsa-utils
+          # 🟢 核心提速秘籍：加上 --no-install-recommends，拒绝下载无用的桌面驱动和语音包
+          sudo apt-get install -y --no-install-recommends xvfb ffmpeg unzip curl pulseaudio alsa-utils
+          
           wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
           sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install -y --no-install-recommends google-chrome-stable
           
           # 启动虚拟音频设备 (必须保留，防止 Chrome 因无声卡而拒绝提供音频验证码)
           pulseaudio --start --exit-idle-time=-1 || true
