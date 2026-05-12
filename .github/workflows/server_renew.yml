@@ -1,0 +1,138 @@
+name: Auto Renew Server Script
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */7 * * *' 
+
+jobs:
+  run-renew:
+    runs-on: ubuntu-latest 
+
+    steps:
+      # =========================
+      # 🟡 0️⃣ 检出代码 
+      # =========================
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Checkout private repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/host2play-renew
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }} 
+          path: private
+
+      # =========================
+      # 🟡 将私有库文件移至根目录
+      # =========================
+      - name: Move private repo files to root
+        run: |
+          # 使用 cp -a 将隐藏文件一起复制到根目录，然后删掉空文件夹
+          cp -a private/. ./
+          rm -rf private
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10' 
+
+      # =========================
+      # 🟡 安装系统依赖与声卡伪装
+      # =========================
+      - name: Install System Dependencies & Audio
+        run: |
+          sudo apt-get update
+          # 🟢 加上 --no-install-recommends，不下载无用的桌面驱动和语音包
+          sudo apt-get install -y --no-install-recommends xvfb ffmpeg unzip curl pulseaudio alsa-utils
+          
+          wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -
+          sudo sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list'
+          sudo apt-get install -y --no-install-recommends google-chrome-stable
+          
+          # 启动虚拟音频设备 (解决 Chrome 因无声卡而拒绝提供音频验证码)
+          pulseaudio --start --exit-idle-time=-1 || true
+          pactl load-module module-null-sink sink_name=virtual_speaker || true
+          pactl set-default-sink virtual_speaker || true
+          pactl load-module module-virtual-source source_name=virtual_mic || true
+          pactl set-default-source virtual_mic || true
+
+      # =========================
+      # 🟡 启用 Cloudflare WARP 
+      # =========================
+      - name: Enable Cloudflare WARP
+        uses: fscarmen/warp-on-actions@v1.3
+        with:
+          stack: dual
+          mode: client
+
+      # =========================
+      # 🟡 安装 Python 依赖 (仅保留 DP)
+      # =========================
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
+
+      # =========================
+      # 🟡 执行续订 (最大 15 次 IP 轮换)
+      # =========================
+      - name: Run Renew Script with IP Rotation
+        env:
+          RENEW_URL: ${{ secrets.RENEW_URL }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+        run: |
+          echo "🔧 应用 DNS 补丁..."
+          sudo systemctl stop systemd-resolved 2>/dev/null || true
+          sudo systemctl disable systemd-resolved 2>/dev/null || true
+          sudo rm -f /etc/resolv.conf
+          echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+        
+          MAX_RETRIES=15
+          ATTEMPT=1
+          
+          while [ $ATTEMPT -le $MAX_RETRIES ]; do
+            echo "========================================="
+            echo "🚀 第 $ATTEMPT 次尝试执行脚本..."
+            echo "🌍 当前 IP: $(curl -s https://api.ipify.org)"
+            echo "========================================="
+            
+            # 运行 Python 脚本
+            set +e 
+            python main.py
+            EXIT_CODE=$?
+            set -e
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "🎉 脚本执行成功！退出循环。"
+              exit 0
+            elif [ $EXIT_CODE -eq 88 ]; then
+              echo "⚠️ Python 报告 IP 被风控 (Exit Code 88)。"
+              echo "🔄 准备重启 WARP 以获取新 IP..."
+              warp-cli --accept-tos disconnect || true
+              sleep 3
+              warp-cli --accept-tos connect
+              sleep 5
+              ATTEMPT=$((ATTEMPT+1))
+            else
+              echo "💥 脚本发生普通崩溃 (Exit Code $EXIT_CODE)，非 IP 问题，停止重试。"
+              exit 1
+            fi
+          done
+          
+          echo "❌ 已达到最大尝试次数 ($MAX_RETRIES)，彻底失败。"
+          exit 1
+
+      # =========================
+      # 🟡 上传日志
+      # =========================
+      - name: Upload Debug Artifacts
+        uses: actions/upload-artifact@v4
+        if: always() 
+        with:
+          name: debug-screenshots 
+          path: |
+            ./*.png
+            ./*.html
+          retention-days: 1
