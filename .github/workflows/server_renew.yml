@@ -84,7 +84,7 @@ jobs:
           pip install DrissionPage xvfbwrapper requests SpeechRecognition pydub
 
       # =========================
-      # 🟡 4️⃣ 执行续订 (最大 15 次 IP 轮换)
+      # 🟡 4️⃣ 执行续订 (最大 10 次 IP 轮换)
       # =========================
       - name: Run Renew Script with IP Rotation
         env:
@@ -99,7 +99,7 @@ jobs:
           sudo rm -f /etc/resolv.conf
           echo -e "nameserver 1.1.1.1\nnameserver 8.8.8.8" | sudo tee /etc/resolv.conf
         
-          MAX_RETRIES=15
+          MAX_RETRIES=10
           ATTEMPT=1
           
           while [ $ATTEMPT -le $MAX_RETRIES ]; do
